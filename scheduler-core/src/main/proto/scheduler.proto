@@ -1,0 +1,164 @@
+syntax = "proto3";
+
+package scheduler;
+
+option java_package = "com.scheduler.grpc";
+option java_outer_classname = "SchedulerProto";
+option java_multiple_files = true;
+
+// ─── Task Scheduler Service ──────────────────────────────────────────────────
+service TaskSchedulerService {
+  rpc SubmitTask       (TaskRequest)          returns (TaskResponse);
+  rpc GetTaskStatus    (TaskStatusRequest)    returns (TaskStatusResponse);
+  rpc CancelTask       (CancelTaskRequest)    returns (CancelTaskResponse);
+  rpc ListTasks        (ListTasksRequest)     returns (ListTasksResponse);
+  rpc RegisterWorker   (WorkerRegistration)  returns (RegistrationResponse);
+  rpc SendHeartbeat    (HeartbeatRequest)     returns (HeartbeatResponse);
+  rpc GetClusterInfo   (ClusterInfoRequest)  returns (ClusterInfoResponse);
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+enum TaskStatus {
+  PENDING   = 0;
+  QUEUED    = 1;
+  RUNNING   = 2;
+  COMPLETED = 3;
+  FAILED    = 4;
+  CANCELLED = 5;
+  RETRYING  = 6;
+}
+
+enum TaskPriority {
+  LOW    = 0;
+  MEDIUM = 1;
+  HIGH   = 2;
+  URGENT = 3;
+}
+
+enum WorkerStatus {
+  IDLE        = 0;
+  BUSY        = 1;
+  DRAINING    = 2;
+  UNAVAILABLE = 3;
+}
+
+// ─── Task Messages ────────────────────────────────────────────────────────────
+message Task {
+  string         task_id        = 1;
+  string         task_name      = 2;
+  string         payload        = 3;
+  TaskStatus     status         = 4;
+  TaskPriority   priority       = 5;
+  string         assigned_to    = 6;
+  int64          created_at     = 7;
+  int64          started_at     = 8;
+  int64          completed_at   = 9;
+  int32          retry_count    = 10;
+  int32          max_retries    = 11;
+  int64          timeout_ms     = 12;
+  map<string, string> metadata  = 13;
+  string         result         = 14;
+  string         error_message  = 15;
+}
+
+message TaskRequest {
+  string         task_name    = 1;
+  string         payload      = 2;
+  TaskPriority   priority     = 3;
+  int32          max_retries  = 4;
+  int64          timeout_ms   = 5;
+  map<string, string> metadata = 6;
+}
+
+message TaskResponse {
+  bool   success  = 1;
+  string task_id  = 2;
+  string message  = 3;
+}
+
+message TaskStatusRequest {
+  string task_id = 1;
+}
+
+message TaskStatusResponse {
+  bool   success = 1;
+  Task   task    = 2;
+  string message = 3;
+}
+
+message CancelTaskRequest {
+  string task_id = 1;
+}
+
+message CancelTaskResponse {
+  bool   success = 1;
+  string message = 2;
+}
+
+message ListTasksRequest {
+  TaskStatus status    = 1;
+  int32      page_size = 2;
+  int32      page      = 3;
+}
+
+message ListTasksResponse {
+  repeated Task tasks       = 1;
+  int32         total_count = 2;
+}
+
+// ─── Worker Messages ──────────────────────────────────────────────────────────
+message Worker {
+  string       worker_id       = 1;
+  string       host            = 2;
+  int32        port            = 3;
+  WorkerStatus status          = 4;
+  int32        current_tasks   = 5;
+  int32        max_tasks       = 6;
+  int64        last_heartbeat  = 7;
+  int64        registered_at   = 8;
+  string       version         = 9;
+  map<string, string> labels   = 10;
+}
+
+message WorkerRegistration {
+  string worker_id = 1;
+  string host      = 2;
+  int32  port      = 3;
+  int32  max_tasks = 4;
+  string version   = 5;
+  map<string, string> labels = 6;
+}
+
+message RegistrationResponse {
+  bool   success   = 1;
+  string worker_id = 2;
+  string message   = 3;
+}
+
+message HeartbeatRequest {
+  string       worker_id     = 1;
+  WorkerStatus status        = 2;
+  int32        current_tasks = 3;
+  repeated string active_task_ids = 4;
+}
+
+message HeartbeatResponse {
+  bool   success          = 1;
+  bool   should_drain     = 2;
+  string message          = 3;
+  repeated Task assigned_tasks = 4;
+}
+
+// ─── Cluster Messages ─────────────────────────────────────────────────────────
+message ClusterInfoRequest {}
+
+message ClusterInfoResponse {
+  string           leader_id        = 1;
+  bool             is_leader        = 2;
+  repeated Worker  workers          = 3;
+  int32            total_tasks      = 4;
+  int32            pending_tasks    = 5;
+  int32            running_tasks    = 6;
+  int32            completed_tasks  = 7;
+  int32            failed_tasks     = 8;
+}
