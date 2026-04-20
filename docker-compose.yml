@@ -1,0 +1,180 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────
+# Distributed Task Scheduler — local docker-compose stack
+#
+# Services:
+#   redis       Redis 7 (task queue + leader key + metrics)
+#   scheduler   Java gRPC scheduler (3 replicas for HA demo)
+#   worker      Java gRPC worker    (3 replicas)
+#   gateway     Flask REST gateway  (1 replica)
+#
+# Usage:
+#   docker compose up --build
+#   docker compose up --scale worker=5    (scale workers)
+# ─────────────────────────────────────────────────────────────────
+
+networks:
+  scheduler-net:
+    driver: bridge
+
+volumes:
+  redis-data:
+
+services:
+
+  # ── Redis ────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - scheduler-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Scheduler (3 replicas for leader-election demo) ──────────────
+  scheduler-1:
+    build:
+      context: ./scheduler
+      dockerfile: Dockerfile
+    container_name: scheduler-1
+    environment:
+      REDIS_HOST:   redis
+      REDIS_PORT:   "6379"
+      GRPC_PORT:    "9090"
+      SCHEDULER_ID: scheduler-1
+    ports:
+      - "9090:9090"
+    networks:
+      - scheduler-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  scheduler-2:
+    build:
+      context: ./scheduler
+      dockerfile: Dockerfile
+    container_name: scheduler-2
+    environment:
+      REDIS_HOST:   redis
+      REDIS_PORT:   "6379"
+      GRPC_PORT:    "9090"
+      SCHEDULER_ID: scheduler-2
+    networks:
+      - scheduler-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  scheduler-3:
+    build:
+      context: ./scheduler
+      dockerfile: Dockerfile
+    container_name: scheduler-3
+    environment:
+      REDIS_HOST:   redis
+      REDIS_PORT:   "6379"
+      GRPC_PORT:    "9090"
+      SCHEDULER_ID: scheduler-3
+    networks:
+      - scheduler-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Workers ───────────────────────────────────────────────────────
+  worker-1:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: worker-1
+    environment:
+      WORKER_ID:      worker-1
+      WORKER_HOST:    worker-1
+      WORKER_PORT:    "9091"
+      CAPACITY:       "10"
+      SCHEDULER_HOST: scheduler-1
+      SCHEDULER_PORT: "9090"
+      REDIS_HOST:     redis
+      REDIS_PORT:     "6379"
+    networks:
+      - scheduler-net
+    depends_on:
+      - scheduler-1
+    restart: unless-stopped
+
+  worker-2:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: worker-2
+    environment:
+      WORKER_ID:      worker-2
+      WORKER_HOST:    worker-2
+      WORKER_PORT:    "9091"
+      CAPACITY:       "10"
+      SCHEDULER_HOST: scheduler-1
+      SCHEDULER_PORT: "9090"
+      REDIS_HOST:     redis
+      REDIS_PORT:     "6379"
+    networks:
+      - scheduler-net
+    depends_on:
+      - scheduler-1
+    restart: unless-stopped
+
+  worker-3:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: worker-3
+    environment:
+      WORKER_ID:      worker-3
+      WORKER_HOST:    worker-3
+      WORKER_PORT:    "9091"
+      CAPACITY:       "10"
+      SCHEDULER_HOST: scheduler-1
+      SCHEDULER_PORT: "9090"
+      REDIS_HOST:     redis
+      REDIS_PORT:     "6379"
+    networks:
+      - scheduler-net
+    depends_on:
+      - scheduler-1
+    restart: unless-stopped
+
+  # ── Flask Gateway ─────────────────────────────────────────────────
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: gateway
+    environment:
+      REDIS_HOST:   redis
+      REDIS_PORT:   "6379"
+      GATEWAY_PORT: "5000"
+    ports:
+      - "8080:5000"
+    networks:
+      - scheduler-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
