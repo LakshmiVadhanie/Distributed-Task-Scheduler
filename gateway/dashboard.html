@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Distributed Task Scheduler — Control Panel</title>
+  <meta name="description" content="Live monitoring dashboard for the distributed task scheduler cluster. Submit tasks, watch real-time metrics, and track worker health." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ═══════════════════════════════════════════════════════
+       DESIGN TOKENS
+    ═══════════════════════════════════════════════════════ */
+    :root {
+      --bg-void:    #080b14;
+      --bg-deep:    #0d1120;
+      --bg-surface: #111827;
+      --bg-panel:   rgba(255,255,255,.04);
+      --bg-hover:   rgba(255,255,255,.07);
+
+      --border:     rgba(255,255,255,.08);
+      --border-hi:  rgba(99,179,237,.3);
+
+      --accent:     #3b82f6;
+      --accent-glow:#1d4ed8;
+      --cyan:       #06b6d4;
+      --violet:     #8b5cf6;
+      --emerald:    #10b981;
+      --amber:      #f59e0b;
+      --rose:       #f43f5e;
+      --slate:      #64748b;
+
+      --text-primary: #f1f5f9;
+      --text-muted:   #64748b;
+      --text-dim:     #334155;
+
+      --radius:  14px;
+      --radius-sm: 8px;
+      --shadow: 0 4px 32px rgba(0,0,0,.6);
+      --shadow-accent: 0 0 40px rgba(59,130,246,.15);
+
+      --font: 'Inter', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       RESET + BASE
+    ═══════════════════════════════════════════════════════ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    body {
+      font-family: var(--font);
+      background: var(--bg-void);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* ── Animated background orbs ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% -20%, rgba(59,130,246,.12) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 50% at 80% 110%, rgba(139,92,246,.10) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 40% at 50% 50%, rgba(6,182,212,.05) 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       LAYOUT
+    ═══════════════════════════════════════════════════════ */
+    .app { position: relative; z-index: 1; max-width: 1440px; margin: 0 auto; padding: 0 24px 80px; }
+
+    /* ── Header ── */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 28px 0 24px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 32px;
+      position: sticky; top: 0; z-index: 100;
+      background: linear-gradient(to bottom, var(--bg-void) 80%, transparent);
+    }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .logo-ring {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent), var(--violet));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 0 24px rgba(59,130,246,.4);
+      animation: pulse-ring 3s ease-in-out infinite;
+    }
+    @keyframes pulse-ring {
+      0%,100% { box-shadow: 0 0 24px rgba(59,130,246,.4); }
+      50%      { box-shadow: 0 0 40px rgba(59,130,246,.7); }
+    }
+    .brand h1 {
+      font-size: 1.15rem; font-weight: 600; letter-spacing: -.02em;
+      line-height: 1.2;
+    }
+    .brand span { font-size: .78rem; color: var(--text-muted); font-weight: 400; display: block; margin-top: 2px; }
+
+    .header-right { display: flex; align-items: center; gap: 16px; }
+    .pulse-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--emerald);
+      box-shadow: 0 0 10px var(--emerald);
+      animation: blink 2s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .status-label { font-size: .78rem; color: var(--emerald); font-weight: 500; }
+    .btn-refresh {
+      padding: 8px 16px; border-radius: var(--radius-sm);
+      background: var(--bg-panel); border: 1px solid var(--border);
+      color: var(--text-muted); font-size: .8rem; cursor: pointer;
+      font-family: var(--font); transition: all .2s;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .btn-refresh:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--border-hi); }
+    .btn-refresh svg { transition: transform .3s; }
+    .btn-refresh:hover svg { transform: rotate(90deg); }
+
+    /* ── Grid layouts ── */
+    .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+    .main-grid { display: grid; grid-template-columns: 1fr 380px; gap: 20px; align-items: start; }
+    .left-col { display: flex; flex-direction: column; gap: 20px; }
+    .right-col { display: flex; flex-direction: column; gap: 20px; position: sticky; top: 110px; }
+
+    /* ════════════════════════════════════════════════════════
+       CARD
+    ════════════════════════════════════════════════════════ */
+    .card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      overflow: hidden;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .card:hover { border-color: rgba(255,255,255,.12); }
+    .card-header {
+      padding: 18px 22px 0;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .card-title {
+      font-size: .78rem; font-weight: 600; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: .1em;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card-title .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+    }
+    .card-body { padding: 18px 22px 22px; }
+
+    /* ═══════════════════════════════════════════════════════
+       STAT CARDS
+    ═══════════════════════════════════════════════════════ */
+    .stat-card {
+      padding: 22px 20px;
+      display: flex; flex-direction: column; gap: 10px;
+      position: relative; overflow: hidden;
+      cursor: default;
+      transition: transform .2s, box-shadow .25s;
+    }
+    .stat-card::before {
+      content: ''; position: absolute;
+      right: -20px; top: -20px;
+      width: 100px; height: 100px; border-radius: 50%;
+      opacity: .07;
+      transition: opacity .3s, transform .3s;
+    }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+    .stat-card:hover::before { opacity: .13; transform: scale(1.1); }
+
+    .stat-card.blue::before  { background: var(--accent); }
+    .stat-card.green::before { background: var(--emerald); }
+    .stat-card.amber::before { background: var(--amber); }
+    .stat-card.violet::before{ background: var(--violet); }
+
+    .stat-icon {
+      width: 36px; height: 36px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+    .stat-card.blue  .stat-icon { background: rgba(59,130,246,.15); color: var(--accent); }
+    .stat-card.green .stat-icon { background: rgba(16,185,129,.15); color: var(--emerald); }
+    .stat-card.amber .stat-icon { background: rgba(245,158,11,.15);  color: var(--amber); }
+    .stat-card.violet .stat-icon{ background: rgba(139,92,246,.15);  color: var(--violet); }
+
+    .stat-val {
+      font-size: 2rem; font-weight: 700; letter-spacing: -.04em;
+      line-height: 1; font-variant-numeric: tabular-nums;
+      transition: all .4s cubic-bezier(.34,1.56,.64,1);
+    }
+    .stat-label { font-size: .75rem; color: var(--text-muted); font-weight: 500; }
+    .stat-sub   { font-size: .72rem; color: var(--slate); margin-top: -4px; }
+
+    /* ═══════════════════════════════════════════════════════
+       QUEUE BAR
+    ═══════════════════════════════════════════════════════ */
+    .queue-bars { display: flex; flex-direction: column; gap: 14px; }
+    .queue-row  { display: flex; align-items: center; gap: 12px; }
+    .queue-label { font-size: .75rem; font-weight: 600; width: 52px; color: var(--text-muted); }
+    .queue-bar-wrap { flex: 1; height: 8px; background: var(--bg-void); border-radius: 99px; overflow: hidden; }
+    .queue-bar-fill {
+      height: 100%; border-radius: 99px;
+      transition: width .6s cubic-bezier(.4,0,.2,1);
+    }
+    .queue-bar-fill.high   { background: linear-gradient(90deg, var(--rose), #ff6b8a); }
+    .queue-bar-fill.normal { background: linear-gradient(90deg, var(--accent), var(--cyan)); }
+    .queue-bar-fill.low    { background: linear-gradient(90deg, var(--violet), #a78bfa); }
+    .queue-count { font-size: .78rem; color: var(--text-muted); font-family: var(--mono); width: 24px; text-align: right; }
+
+    /* ═══════════════════════════════════════════════════════
+       MINI CHART (sparkline via SVG)
+    ═══════════════════════════════════════════════════════ */
+    .sparkline-wrap { width: 100%; height: 60px; margin-top: 8px; }
+    .sparkline-wrap svg { width: 100%; height: 100%; overflow: visible; }
+
+    /* ═══════════════════════════════════════════════════════
+       WORKERS GRID
+    ═══════════════════════════════════════════════════════ */
+    .workers-grid { display: flex; flex-direction: column; gap: 10px; }
+    .worker-row {
+      display: grid; grid-template-columns: 1fr auto auto;
+      align-items: center; gap: 12px;
+      padding: 12px 16px; border-radius: 10px;
+      background: rgba(255,255,255,.025);
+      border: 1px solid var(--border);
+      transition: background .2s, border-color .2s;
+      animation: fadeSlide .3s ease forwards;
+    }
+    @keyframes fadeSlide { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+    .worker-row:hover { background: var(--bg-hover); border-color: rgba(255,255,255,.12); }
+    .worker-name { font-family: var(--mono); font-size: .8rem; color: var(--text-primary); }
+    .worker-sub  { font-size: .7rem; color: var(--text-muted); margin-top: 2px; }
+    .worker-load-bar { width: 80px; height: 6px; background: var(--bg-void); border-radius: 99px; overflow: hidden; }
+    .worker-load-fill { height: 100%; border-radius: 99px; transition: width .5s ease; }
+    .worker-badge {
+      font-size: .68rem; font-weight: 600; padding: 3px 8px;
+      border-radius: 99px; font-family: var(--mono);
+    }
+    .worker-badge.online  { background: rgba(16,185,129,.15); color: var(--emerald); }
+    .worker-badge.busy    { background: rgba(245,158,11,.15);  color: var(--amber); }
+    .worker-badge.offline { background: rgba(244,63,94,.15);   color: var(--rose); }
+
+    .empty-state {
+      text-align: center; padding: 28px 0;
+      color: var(--text-muted); font-size: .82rem;
+    }
+    .empty-state .icon { font-size: 2rem; margin-bottom: 8px; opacity: .5; }
+
+    /* ═══════════════════════════════════════════════════════
+       TASK LIST
+    ═══════════════════════════════════════════════════════ */
+    .task-list { display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto; padding-right: 4px; }
+    .task-list::-webkit-scrollbar { width: 4px; }
+    .task-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .task-row {
+      display: grid; grid-template-columns: auto 1fr auto auto;
+      align-items: center; gap: 12px;
+      padding: 11px 14px; border-radius: 10px;
+      background: rgba(255,255,255,.02);
+      border: 1px solid var(--border);
+      font-size: .78rem;
+      transition: background .15s;
+      animation: fadeSlide .3s ease forwards;
+    }
+    .task-row:hover { background: var(--bg-hover); }
+    .task-type-badge {
+      padding: 3px 9px; border-radius: 6px; font-size: .68rem;
+      font-weight: 600; font-family: var(--mono);
+    }
+    .task-type-badge.COMPUTE         { background: rgba(59,130,246,.15);  color: var(--accent); }
+    .task-type-badge.DATA_PROCESSING { background: rgba(6,182,212,.15);   color: var(--cyan); }
+    .task-type-badge.EMAIL_SEND      { background: rgba(245,158,11,.15);  color: var(--amber); }
+    .task-type-badge.IMAGE_RESIZE    { background: rgba(139,92,246,.15);  color: var(--violet); }
+    .task-type-badge.HTTP_CALL       { background: rgba(16,185,129,.15);  color: var(--emerald); }
+    .task-type-badge.GENERIC         { background: rgba(100,116,139,.15); color: var(--slate); }
+    .task-id-text  { font-family: var(--mono); font-size: .7rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .task-prio     { font-size: .7rem; color: var(--text-muted); }
+    .status-chip   { font-size: .68rem; font-weight: 600; padding: 3px 8px; border-radius: 99px; white-space: nowrap; }
+    .status-chip.PENDING   { background: rgba(100,116,139,.15); color: var(--slate); }
+    .status-chip.RUNNING   { background: rgba(6,182,212,.15);   color: var(--cyan); animation: chipPulse 1.5s infinite; }
+    .status-chip.COMPLETED { background: rgba(16,185,129,.15);  color: var(--emerald); }
+    .status-chip.FAILED    { background: rgba(244,63,94,.15);   color: var(--rose); }
+    .status-chip.RETRYING  { background: rgba(245,158,11,.15);  color: var(--amber); }
+    .status-chip.CANCELLED { background: rgba(100,116,139,.1);  color: var(--text-dim); }
+    @keyframes chipPulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+
+    /* ═══════════════════════════════════════════════════════
+       CLUSTER PANEL
+    ═══════════════════════════════════════════════════════ */
+    .cluster-info { display: flex; flex-direction: column; gap: 12px; }
+    .cluster-row  { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(255,255,255,.025); border-radius: 8px; }
+    .cluster-key  { font-size: .78rem; color: var(--text-muted); }
+    .cluster-val  { font-size: .78rem; font-weight: 600; font-family: var(--mono); }
+    .leader-badge { display: inline-flex; align-items: center; gap: 6px; }
+    .leader-dot   { width: 7px; height: 7px; border-radius: 50%; background: var(--emerald); box-shadow: 0 0 6px var(--emerald); }
+
+    /* ═══════════════════════════════════════════════════════
+       SUBMIT FORM
+    ═══════════════════════════════════════════════════════ */
+    .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    .form-label { font-size: .75rem; font-weight: 600; color: var(--text-muted); }
+    .form-input, .form-select {
+      background: rgba(255,255,255,.05); border: 1px solid var(--border);
+      color: var(--text-primary); border-radius: var(--radius-sm);
+      padding: 10px 12px; font-size: .83rem; font-family: var(--font);
+      outline: none; transition: border-color .2s, box-shadow .2s;
+      appearance: none; width: 100%;
+    }
+    .form-input:focus, .form-select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+    }
+    .form-select option { background: var(--bg-surface); }
+    .priority-row { display: flex; align-items: center; gap: 10px; }
+    .priority-val { font-family: var(--mono); font-size: .85rem; color: var(--accent); min-width: 16px; text-align: right; }
+    input[type=range] {
+      -webkit-appearance: none; appearance: none; flex: 1; height: 4px;
+      background: linear-gradient(90deg, var(--accent) var(--pct, 50%), var(--border) 0%);
+      border-radius: 99px; outline: none; cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 16px; height: 16px;
+      border-radius: 50%; background: var(--accent);
+      box-shadow: 0 0 8px rgba(59,130,246,.5);
+      cursor: pointer; transition: transform .15s;
+    }
+    input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.2); }
+
+    .btn-submit {
+      width: 100%; padding: 12px;
+      background: linear-gradient(135deg, var(--accent), var(--violet));
+      border: none; border-radius: var(--radius-sm);
+      color: #fff; font-size: .88rem; font-weight: 600;
+      cursor: pointer; font-family: var(--font);
+      transition: opacity .2s, transform .15s, box-shadow .2s;
+      box-shadow: 0 4px 16px rgba(59,130,246,.3);
+      margin-top: 4px; letter-spacing: -.01em;
+    }
+    .btn-submit:hover { opacity: .92; transform: translateY(-1px); box-shadow: 0 6px 24px rgba(59,130,246,.45); }
+    .btn-submit:active { transform: translateY(0); }
+    .btn-submit:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    .toast {
+      position: fixed; bottom: 28px; right: 28px;
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 12px 18px;
+      font-size: .82rem; z-index: 9999;
+      display: flex; align-items: center; gap: 10px;
+      box-shadow: var(--shadow);
+      transform: translateY(20px); opacity: 0;
+      transition: all .3s cubic-bezier(.34,1.56,.64,1);
+      max-width: 340px;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success .toast-icon { color: var(--emerald); }
+    .toast.error   .toast-icon { color: var(--rose); }
+    .toast-msg { color: var(--text-primary); }
+
+    /* ═══════════════════════════════════════════════════════
+       PERFORMANCE DIAL
+    ═══════════════════════════════════════════════════════ */
+    .perf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .perf-tile {
+      background: rgba(255,255,255,.025); border-radius: 10px;
+      padding: 14px; text-align: center;
+      border: 1px solid var(--border);
+    }
+    .perf-tile .val { font-size: 1.4rem; font-weight: 700; font-family: var(--mono); letter-spacing: -.03em; }
+    .perf-tile .lbl { font-size: .7rem; color: var(--text-muted); margin-top: 4px; }
+
+    /* ═══════════════════════════════════════════════════════
+       COMPLETION RING
+    ═══════════════════════════════════════════════════════ */
+    .ring-wrap { display: flex; align-items: center; gap: 20px; padding: 8px 0; }
+    .ring-svg  { flex-shrink: 0; }
+    circle.track { fill: none; stroke: var(--border); stroke-width: 6; }
+    circle.fill  {
+      fill: none; stroke-width: 6;
+      stroke-linecap: round;
+      stroke: url(#ringGrad);
+      transform-origin: 50% 50%;
+      transform: rotate(-90deg);
+      transition: stroke-dashoffset .8s cubic-bezier(.4,0,.2,1);
+    }
+    .ring-info .pct { font-size: 2rem; font-weight: 700; letter-spacing: -.04em; color: var(--emerald); }
+    .ring-info .lbl { font-size: .75rem; color: var(--text-muted); }
+    .ring-info .sub { font-size: .72rem; color: var(--slate); margin-top: 6px; }
+
+    /* ═══════════════════════════════════════════════════════
+       LIVE FEED BADGE
+    ═══════════════════════════════════════════════════════ */
+    .live-badge {
+      display: flex; align-items: center; gap: 5px;
+      font-size: .68rem; color: var(--rose); font-weight: 600;
+    }
+    .live-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--rose);
+      animation: blink 1.2s infinite;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       SECTION LABELS
+    ═══════════════════════════════════════════════════════ */
+    .section-label {
+      font-size: .7rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .12em; color: var(--text-muted);
+      margin-bottom: 6px; display: flex; align-items: center; gap: 8px;
+    }
+    .section-label::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       RESPONSIVE
+    ═══════════════════════════════════════════════════════ */
+    @media (max-width: 1024px) {
+      .main-grid { grid-template-columns: 1fr; }
+      .right-col { position: static; }
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 600px) {
+      .stats-row { grid-template-columns: 1fr; }
+      header { flex-direction: column; align-items: flex-start; gap: 12px; }
+      .app { padding: 0 14px 60px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ── HEADER ──────────────────────────────────────────── -->
+  <header>
+    <div class="brand">
+      <div class="logo-ring">⚡</div>
+      <div>
+        <h1>Task Scheduler</h1>
+        <span>Distributed Control Panel</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="pulse-dot"></div>
+      <span class="status-label" id="conn-status">Connecting…</span>
+      <button class="btn-refresh" id="refresh-btn" onclick="fetchAll()">
+        <svg id="refresh-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="1 4 1 10 7 10"></polyline>
+          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+        </svg>
+        Refresh
+      </button>
+    </div>
+  </header>
+
+  <!-- ── STAT CARDS ─────────────────────────────────────── -->
+  <div class="stats-row">
+    <div class="card stat-card blue">
+      <div class="stat-icon">📤</div>
+      <div class="stat-val" id="stat-submitted">—</div>
+      <div class="stat-label">Tasks Submitted</div>
+      <div class="stat-sub" id="stat-sub-submitted">Lifetime total</div>
+    </div>
+    <div class="card stat-card green">
+      <div class="stat-icon">✅</div>
+      <div class="stat-val" id="stat-completed">—</div>
+      <div class="stat-label">Tasks Completed</div>
+      <div class="stat-sub" id="stat-sub-rate">—</div>
+    </div>
+    <div class="card stat-card amber">
+      <div class="stat-icon">⏳</div>
+      <div class="stat-val" id="stat-queued">—</div>
+      <div class="stat-label">Queued Now</div>
+      <div class="stat-sub">Across all priorities</div>
+    </div>
+    <div class="card stat-card violet">
+      <div class="stat-icon">🖥</div>
+      <div class="stat-val" id="stat-workers">—</div>
+      <div class="stat-label">Active Workers</div>
+      <div class="stat-sub" id="stat-sub-leader">Leader: —</div>
+    </div>
+  </div>
+
+  <!-- ── MAIN GRID ──────────────────────────────────────── -->
+  <div class="main-grid">
+
+    <!-- ── LEFT COL ── -->
+    <div class="left-col">
+
+      <!-- Completion Rate + Performance -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><span class="dot" style="background:var(--emerald)"></span>Completion Rate</span>
+          </div>
+          <div class="card-body">
+            <div class="ring-wrap">
+              <svg class="ring-svg" width="90" height="90" viewBox="0 0 90 90">
+                <defs>
+                  <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%"   stop-color="#10b981"/>
+                    <stop offset="100%" stop-color="#06b6d4"/>
+                  </linearGradient>
+                </defs>
+                <circle class="track" cx="45" cy="45" r="36"/>
+                <circle class="fill"  cx="45" cy="45" r="36"
+                  id="ring-fill"
+                  stroke-dasharray="226.2"
+                  stroke-dashoffset="226.2"/>
+              </svg>
+              <div class="ring-info">
+                <div class="pct" id="ring-pct">0%</div>
+                <div class="lbl">Completion rate</div>
+                <div class="sub" id="ring-sub">0 / 0 tasks</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><span class="dot" style="background:var(--cyan)"></span>Performance</span>
+          </div>
+          <div class="card-body">
+            <div class="perf-grid">
+              <div class="perf-tile">
+                <div class="val" id="perf-avg" style="color:var(--cyan)">—</div>
+                <div class="lbl">Avg Exec (ms)</div>
+              </div>
+              <div class="perf-tile">
+                <div class="val" id="perf-p99" style="color:var(--violet)">—</div>
+                <div class="lbl">P99 Exec (ms)</div>
+              </div>
+              <div class="perf-tile">
+                <div class="val" id="perf-failed" style="color:var(--rose)">—</div>
+                <div class="lbl">Failed</div>
+              </div>
+              <div class="perf-tile">
+                <div class="val" id="perf-evictions" style="color:var(--amber)">—</div>
+                <div class="lbl">Evictions</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Queue Depths -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><span class="dot" style="background:var(--accent)"></span>Queue Depths</span>
+          <span id="queue-total-label" style="font-size:.75rem;color:var(--text-muted)">Total: 0</span>
+        </div>
+        <div class="card-body">
+          <div class="queue-bars">
+            <div class="queue-row">
+              <span class="queue-label" style="color:var(--rose)">HIGH</span>
+              <div class="queue-bar-wrap"><div class="queue-bar-fill high" id="qbar-high" style="width:0%"></div></div>
+              <span class="queue-count" id="qcount-high">0</span>
+            </div>
+            <div class="queue-row">
+              <span class="queue-label" style="color:var(--accent)">NORMAL</span>
+              <div class="queue-bar-wrap"><div class="queue-bar-fill normal" id="qbar-normal" style="width:0%"></div></div>
+              <span class="queue-count" id="qcount-normal">0</span>
+            </div>
+            <div class="queue-row">
+              <span class="queue-label" style="color:var(--violet)">LOW</span>
+              <div class="queue-bar-wrap"><div class="queue-bar-fill low" id="qbar-low" style="width:0%"></div></div>
+              <span class="queue-count" id="qcount-low">0</span>
+            </div>
+          </div>
+
+          <!-- Submission sparkline -->
+          <div style="margin-top:18px;">
+            <div class="section-label">Submit activity (last 30s)</div>
+            <div class="sparkline-wrap">
+              <svg id="sparkline-svg" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#3b82f6" stop-opacity=".4"/>
+                    <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+                <path id="spark-area" fill="url(#sparkGrad)" stroke="none"/>
+                <path id="spark-line" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linejoin="round"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent Tasks -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><span class="dot" style="background:var(--violet)"></span>Recent Tasks</span>
+          <span class="live-badge"><span class="live-dot"></span>LIVE</span>
+        </div>
+        <div class="card-body" style="padding-top:14px;">
+          <div class="task-list" id="task-list">
+            <div class="empty-state"><div class="icon">📭</div>No tasks yet</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── RIGHT COL ── -->
+    <div class="right-col">
+
+      <!-- Submit Task -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><span class="dot" style="background:var(--accent)"></span>Submit Task</span>
+        </div>
+        <div class="card-body" style="padding-top:16px;">
+          <form id="submit-form" onsubmit="handleSubmit(event)">
+            <div class="form-group">
+              <label class="form-label" for="f-type">Task Type</label>
+              <select class="form-select" id="f-type" name="taskType">
+                <option value="COMPUTE">⚙️  COMPUTE</option>
+                <option value="DATA_PROCESSING">📊  DATA_PROCESSING</option>
+                <option value="EMAIL_SEND">📧  EMAIL_SEND</option>
+                <option value="IMAGE_RESIZE">🖼  IMAGE_RESIZE</option>
+                <option value="HTTP_CALL">🌐  HTTP_CALL</option>
+                <option value="GENERIC">🔧  GENERIC</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="f-payload">Payload (JSON)</label>
+              <input class="form-input" id="f-payload" name="payload"
+                value='{"iterations": 100000}'
+                style="font-family: var(--mono); font-size:.78rem;" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Priority <span id="f-prio-label" style="color:var(--accent)">5</span>/10</label>
+              <div class="priority-row">
+                <span style="font-size:.7rem;color:var(--text-muted)">LOW</span>
+                <input type="range" id="f-priority" min="1" max="10" value="5"
+                  oninput="updatePriority(this)" />
+                <span style="font-size:.7rem;color:var(--text-muted)">HIGH</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="f-timeout">Timeout (ms)</label>
+              <input class="form-input" id="f-timeout" type="number" value="30000" min="1000" max="300000" />
+            </div>
+            <button class="btn-submit" id="submit-btn" type="submit">
+              ⚡ Submit Task
+            </button>
+          </form>
+
+          <!-- Bulk submit shortcuts -->
+          <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+            <button onclick="bulkSubmit(5)" style="flex:1;padding:8px;border-radius:8px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.2);color:var(--accent);font-size:.75rem;cursor:pointer;font-family:var(--font);transition:background .2s;" onmouseover="this.style.background='rgba(59,130,246,.2)'" onmouseout="this.style.background='rgba(59,130,246,.1)'">+5 tasks</button>
+            <button onclick="bulkSubmit(20)" style="flex:1;padding:8px;border-radius:8px;background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.2);color:var(--violet);font-size:.75rem;cursor:pointer;font-family:var(--font);transition:background .2s;" onmouseover="this.style.background='rgba(139,92,246,.2)'" onmouseout="this.style.background='rgba(139,92,246,.1)'">+20 tasks</button>
+            <button onclick="bulkSubmit(50)" style="flex:1;padding:8px;border-radius:8px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);color:var(--emerald);font-size:.75rem;cursor:pointer;font-family:var(--font);transition:background .2s;" onmouseover="this.style.background='rgba(16,185,129,.2)'" onmouseout="this.style.background='rgba(16,185,129,.1)'">+50 tasks</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Workers -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><span class="dot" style="background:var(--emerald)"></span>Workers</span>
+          <span id="worker-count-badge" style="font-size:.72rem;color:var(--text-muted)">0 active</span>
+        </div>
+        <div class="card-body" style="padding-top:14px;">
+          <div class="workers-grid" id="workers-list">
+            <div class="empty-state"><div class="icon">🤖</div>No workers reporting</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cluster -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><span class="dot" style="background:var(--amber)"></span>Cluster</span>
+        </div>
+        <div class="card-body" style="padding-top:14px;">
+          <div class="cluster-info" id="cluster-info">
+            <div class="cluster-row">
+              <span class="cluster-key">Leader</span>
+              <span class="cluster-val"><span class="leader-badge"><span class="leader-dot"></span><span id="cl-leader">—</span></span></span>
+            </div>
+            <div class="cluster-row">
+              <span class="cluster-key">Worker Evictions</span>
+              <span class="cluster-val" id="cl-evictions">—</span>
+            </div>
+            <div class="cluster-row">
+              <span class="cluster-key">Gateway</span>
+              <span class="cluster-val" style="color:var(--emerald)">● Healthy</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast">
+  <span class="toast-icon" id="toast-icon">✅</span>
+  <span class="toast-msg" id="toast-msg"></span>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     JAVASCRIPT
+══════════════════════════════════════════════════════════ -->
+<script>
+  const API = '';   // Same origin — gateway serves this page
+  let sparkData  = new Array(30).fill(0);
+  let lastSubmitted = 0;
+  let prevSubmit = 0;
+
+  /* ── Helpers ────────────────────────────────────────── */
+  function $(id)    { return document.getElementById(id); }
+  function setText(id, val) { const el = $(id); if(el) el.textContent = val; }
+
+  function animateCounter(id, target) {
+    const el = $(id);
+    if (!el) return;
+    const start = parseFloat(el.textContent.replace(/[^0-9.]/g,'')) || 0;
+    const diff  = target - start;
+    const dur   = 400;
+    const t0    = performance.now();
+    function step(now) {
+      const p = Math.min((now - t0) / dur, 1);
+      const ease = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(start + diff * ease).toLocaleString();
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function showToast(msg, type = 'success') {
+    const t = $('toast');
+    $('toast-icon').textContent = type === 'success' ? '✅' : '❌';
+    $('toast-msg').textContent  = msg;
+    t.className = `toast ${type} show`;
+    setTimeout(() => t.classList.remove('show'), 3400);
+  }
+
+  function updatePriority(el) {
+    const v = el.value;
+    $('f-prio-label').textContent = v;
+    const pct = ((v - 1) / 9 * 100).toFixed(1) + '%';
+    el.style.setProperty('--pct', pct);
+  }
+  updatePriority($('f-priority'));
+
+  /* ── Sparkline ──────────────────────────────────────── */
+  function drawSparkline() {
+    const svg  = $('sparkline-svg');
+    const w    = svg.clientWidth  || 300;
+    const h    = svg.clientHeight || 60;
+    const max  = Math.max(...sparkData, 1);
+    const step = w / (sparkData.length - 1);
+
+    const pts = sparkData.map((v, i) => [i * step, h - (v / max) * (h - 6)]);
+    const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    const area = line + ` L${w},${h} L0,${h} Z`;
+
+    $('spark-line').setAttribute('d', line);
+    $('spark-area').setAttribute('d', area);
+  }
+
+  /* ── Completion ring ─────────────────────────────────── */
+  function setRing(pct) {
+    const circ = 226.2;
+    const offset = circ - (circ * pct / 100);
+    $('ring-fill').style.strokeDashoffset = offset;
+  }
+
+  /* ── Fetch metrics ───────────────────────────────────── */
+  async function fetchMetrics() {
+    const res  = await fetch(`${API}/metrics`);
+    const data = await res.json();
+
+    const { tasks, queues, performance: perf, cluster } = data;
+
+    animateCounter('stat-submitted', tasks.submitted);
+    animateCounter('stat-completed', tasks.completed);
+    animateCounter('stat-queued',    queues.total);
+
+    setText('stat-sub-rate', `${tasks.completionRate} success rate`);
+
+    // Sparkline delta
+    const delta = tasks.submitted - prevSubmit;
+    prevSubmit  = tasks.submitted;
+    sparkData.push(delta);
+    sparkData.shift();
+    drawSparkline();
+
+    // Queues
+    const maxQ = Math.max(queues.high, queues.normal, queues.low, 1);
+    const setQ = (id, cnt) => {
+      $(id + '-high').style.width   = (queues.high   / maxQ * 100) + '%';
+      $(id + '-normal').style.width = (queues.normal / maxQ * 100) + '%';
+      $(id + '-low').style.width    = (queues.low    / maxQ * 100) + '%';
+    };
+    $('qbar-high').style.width   = (queues.high   / maxQ * 100) + '%';
+    $('qbar-normal').style.width = (queues.normal / maxQ * 100) + '%';
+    $('qbar-low').style.width    = (queues.low    / maxQ * 100) + '%';
+    setText('qcount-high',   queues.high);
+    setText('qcount-normal', queues.normal);
+    setText('qcount-low',    queues.low);
+    setText('queue-total-label', `Total: ${queues.total}`);
+
+    // Performance
+    setText('perf-avg',       perf.avgExecMs > 0 ? perf.avgExecMs + ' ms' : '—');
+    setText('perf-p99',       perf.p99ExecMs > 0 ? perf.p99ExecMs + ' ms' : '—');
+    setText('perf-failed',    tasks.failed ?? 0);
+    setText('perf-evictions', cluster.workerEvictions ?? 0);
+
+    // Completion ring
+    const rate = parseFloat(tasks.completionRate) || 0;
+    setText('ring-pct', tasks.completionRate);
+    setText('ring-sub', `${tasks.completed.toLocaleString()} / ${tasks.submitted.toLocaleString()} tasks`);
+    setRing(rate);
+
+    // Cluster
+    setText('cl-leader',    cluster.leader);
+    setText('cl-evictions', cluster.workerEvictions);
+    setText('stat-sub-leader', `Leader: ${cluster.leader}`);
+
+    return tasks.submitted;
+  }
+
+  /* ── Fetch workers ───────────────────────────────────── */
+  async function fetchWorkers() {
+    const res  = await fetch(`${API}/workers`);
+    const data = await res.json();
+    const list = $('workers-list');
+
+    animateCounter('stat-workers', data.count);
+    setText('worker-count-badge', `${data.count} active`);
+
+    if (!data.workers || data.workers.length === 0) {
+      list.innerHTML = '<div class="empty-state"><div class="icon">🤖</div>No workers reporting</div>';
+      return;
+    }
+
+    list.innerHTML = data.workers.map(w => {
+      const load    = w.activeTasks ?? 0;
+      const cap     = w.capacity    ?? 10;
+      const pct     = Math.min((load / cap) * 100, 100);
+      const badge   = load === 0 ? 'online' : (pct > 70 ? 'busy' : 'online');
+      const barCol  = pct > 70 ? 'var(--amber)' : 'var(--emerald)';
+      return `
+        <div class="worker-row">
+          <div>
+            <div class="worker-name">${w.workerId ?? w.id ?? 'worker'}</div>
+            <div class="worker-sub">${load}/${cap} tasks · ${w.host ?? ''}</div>
+          </div>
+          <div class="worker-load-bar">
+            <div class="worker-load-fill" style="width:${pct}%;background:${barCol};"></div>
+          </div>
+          <span class="worker-badge ${badge}">${badge.toUpperCase()}</span>
+        </div>`;
+    }).join('');
+  }
+
+  /* ── Fetch tasks ─────────────────────────────────────── */
+  async function fetchTasks() {
+    const res  = await fetch(`${API}/tasks?limit=30`);
+    const data = await res.json();
+    const list = $('task-list');
+
+    if (!data.tasks || data.tasks.length === 0) {
+      list.innerHTML = '<div class="empty-state"><div class="icon">📭</div>No tasks yet</div>';
+      return;
+    }
+
+    list.innerHTML = data.tasks.map(t => {
+      const ts  = t.createdAt ? new Date(parseInt(t.createdAt)).toLocaleTimeString() : '';
+      const typ = t.taskType ?? 'GENERIC';
+      return `
+        <div class="task-row">
+          <span class="task-type-badge ${typ}">${typ.replace('_',' ')}</span>
+          <span class="task-id-text">${t.taskId ?? ''}</span>
+          <span class="task-prio">P${t.priority ?? '—'}</span>
+          <span class="status-chip ${t.status ?? ''}">${t.status ?? ''}</span>
+        </div>`;
+    }).join('');
+  }
+
+  /* ── Fetch all ───────────────────────────────────────── */
+  async function fetchAll() {
+    const icon = $('refresh-icon');
+    icon.style.transition = 'transform .6s';
+    icon.style.transform  = 'rotate(360deg)';
+    setTimeout(() => { icon.style.transition = ''; icon.style.transform = ''; }, 650);
+
+    try {
+      await Promise.all([fetchMetrics(), fetchWorkers(), fetchTasks()]);
+      setText('conn-status', 'Connected');
+      $('conn-status').style.color = 'var(--emerald)';
+    } catch(e) {
+      setText('conn-status', 'API Offline');
+      $('conn-status').style.color = 'var(--rose)';
+    }
+  }
+
+  /* ── Submit task ─────────────────────────────────────── */
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const btn  = $('submit-btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Submitting…';
+
+    let payload = {};
+    try { payload = JSON.parse($('f-payload').value); } catch(_) {}
+
+    const body = {
+      taskType:  $('f-type').value,
+      payload,
+      priority:  parseInt($('f-priority').value),
+      timeoutMs: parseInt($('f-timeout').value),
+    };
+
+    try {
+      const res = await fetch(`${API}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Task submitted → ${data.queue?.toUpperCase()} queue (P${data.priority})`);
+        setTimeout(fetchAll, 400);
+      } else {
+        showToast(data.error ?? 'Submission failed', 'error');
+      }
+    } catch(err) {
+      showToast('Network error — is the gateway running?', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '⚡ Submit Task';
+    }
+  }
+
+  /* ── Bulk submit ─────────────────────────────────────── */
+  async function bulkSubmit(n) {
+    const types = ['COMPUTE','DATA_PROCESSING','EMAIL_SEND','IMAGE_RESIZE','HTTP_CALL','GENERIC'];
+    const tasks  = Array.from({length: n}, () => ({
+      taskType: types[Math.floor(Math.random() * types.length)],
+      priority: Math.floor(Math.random() * 10) + 1,
+      payload:  { batch: true },
+    }));
+    try {
+      const res = await fetch(`${API}/tasks/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({tasks}),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Bulk submitted ${data.count} tasks`);
+        setTimeout(fetchAll, 400);
+      }
+    } catch(_) {
+      showToast('Bulk submit failed', 'error');
+    }
+  }
+
+  /* ── Auto-refresh ────────────────────────────────────── */
+  fetchAll();
+  setInterval(fetchAll, 4000);   // refresh every 4 s
+</script>
+</body>
+</html>
