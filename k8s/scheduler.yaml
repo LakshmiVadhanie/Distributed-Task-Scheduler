@@ -1,0 +1,120 @@
+# ─────────────────────────────────────────────────────────────────
+# Scheduler — Deployment (3 replicas; only 1 is leader at a time)
+# ─────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler
+  namespace: task-scheduler
+  labels:
+    app: scheduler
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: scheduler
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge:       1
+  template:
+    metadata:
+      labels:
+        app: scheduler
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "9090"
+    spec:
+      # Spread pods across nodes to avoid single-node failure taking all schedulers
+      topologySpreadConstraints:
+        - maxSkew:           1
+          topologyKey:       kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: scheduler
+
+      containers:
+        - name: scheduler
+          image: your-registry/task-scheduler:latest   # replace with your image
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9090
+              name: grpc
+          env:
+            - name: REDIS_HOST
+              value: "redis.task-scheduler.svc.cluster.local"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: GRPC_PORT
+              value: "9090"
+            - name: SCHEDULER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name   # pod name is unique
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu:    "500m"
+            limits:
+              memory: "1Gi"
+              cpu:    "1000m"
+          readinessProbe:
+            tcpSocket:
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds:       10
+          livenessProbe:
+            tcpSocket:
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds:       20
+            failureThreshold:    3
+          volumeMounts:
+            - name: logs
+              mountPath: /app/logs
+
+      volumes:
+        - name: logs
+          emptyDir: {}
+
+      terminationGracePeriodSeconds: 30
+---
+# ClusterIP service — workers use this to send heartbeats
+apiVersion: v1
+kind: Service
+metadata:
+  name: scheduler
+  namespace: task-scheduler
+  labels:
+    app: scheduler
+spec:
+  selector:
+    app: scheduler
+  ports:
+    - name: grpc
+      port:       9090
+      targetPort: 9090
+  type: ClusterIP
+---
+# HPA — scale schedulers under load (they are stateless except for leader key)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: scheduler-hpa
+  namespace: task-scheduler
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: scheduler
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type:               AverageUtilization
+          averageUtilization: 70

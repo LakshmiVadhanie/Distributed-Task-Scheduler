@@ -1,0 +1,139 @@
+# ─────────────────────────────────────────────────────────────────
+# Worker — Deployment (scales from 2 to 20 replicas via HPA)
+# ─────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: task-scheduler
+  labels:
+    app: worker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge:       2
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      # Spread workers across nodes for resilience
+      topologySpreadConstraints:
+        - maxSkew:           1
+          topologyKey:       kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: worker
+
+      containers:
+        - name: worker
+          image: your-registry/task-worker:latest   # replace with your image
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9091
+              name: grpc
+          env:
+            - name: WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name   # pod name (e.g., worker-abc12)
+            - name: WORKER_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP    # scheduler connects back via pod IP
+            - name: WORKER_PORT
+              value: "9091"
+            - name: CAPACITY
+              value: "10"
+            - name: SCHEDULER_HOST
+              value: "scheduler.task-scheduler.svc.cluster.local"
+            - name: SCHEDULER_PORT
+              value: "9090"
+            - name: REDIS_HOST
+              value: "redis.task-scheduler.svc.cluster.local"
+            - name: REDIS_PORT
+              value: "6379"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu:    "250m"
+            limits:
+              memory: "512Mi"
+              cpu:    "500m"
+          readinessProbe:
+            tcpSocket:
+              port: 9091
+            initialDelaySeconds: 10
+            periodSeconds:       5
+          livenessProbe:
+            tcpSocket:
+              port: 9091
+            initialDelaySeconds: 20
+            periodSeconds:       15
+            failureThreshold:    3
+
+      terminationGracePeriodSeconds: 60   # allow in-flight tasks to finish
+---
+# Headless service so the scheduler can reach each worker pod by its IP
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker
+  namespace: task-scheduler
+  labels:
+    app: worker
+spec:
+  selector:
+    app: worker
+  ports:
+    - name: grpc
+      port:       9091
+      targetPort: 9091
+  clusterIP: None   # Headless
+---
+# HPA — scale workers when queue depth builds up or CPU rises
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: worker-hpa
+  namespace: task-scheduler
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: worker
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type:               AverageUtilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type:               AverageUtilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type:          Pods
+          value:         3
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300   # wait 5 min before scaling down
+      policies:
+        - type:          Pods
+          value:         1
+          periodSeconds: 120
